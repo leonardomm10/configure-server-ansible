@@ -1,0 +1,300 @@
+---
+- hosts: server
+  connection: local
+  gather_facts: yes
+  become: yes
+
+  vars:
+    - acc_user: 'user'
+    - acc_pass: 'abc123'
+    - db_user: 'db_user'
+    - db_pass: 'abc123'
+    - db_name: 'mydatabase'
+    - domain: 'test.com'
+    - mysql_root_pass: null
+
+  tasks:
+
+    - name: Enable login with password via ssh.
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication '
+        line: PasswordAuthentication yes
+        state: present
+      notify:
+        - restart sshd
+
+    - name: Disable SELinux.
+      selinux:
+        state: disabled
+
+##########################################################################################
+# Create new user and folders
+##########################################################################################
+
+    - name: Create user {{ acc_user }}.
+      user:
+        name: "{{ acc_user }}"
+        password: "{{ acc_pass | password_hash('sha512') }}"
+        state: present
+        groups: apache
+        append: yes
+        shell: /bin/bash
+
+    - name: Create folders sessions, logs and public_html.
+      file:
+        state: directory
+        owner: "{{ acc_user }}"
+        group: "{{ acc_user }}"
+        path: "{{ item }}"
+      with_items:
+        - /home/{{ acc_user }}/sessions
+        - /home/{{ acc_user }}/logs
+        - /home/{{ acc_user }}/public_html
+
+##########################################################################################
+# Install repository epel-release and some tools
+##########################################################################################
+
+    - name: Install epel-release.
+      yum:
+        name: epel-release
+        state: present
+
+    - name: Install common tools.
+      yum:
+        name: ['wget','curl','vim', 'htop']
+        state: latest
+
+##########################################################################################
+# Install and configure nginx as reverse proxy for apache
+##########################################################################################
+
+    - name: Install Nginx.
+      yum:
+        name: 'nginx'
+        state: present
+
+    - name: Starting and enabling nginx service.
+      service: name=nginx state=started enabled=yes
+
+    - name: Configure nginx vhost from template.
+      template:
+        src: ../templates/nginx/vhost.conf
+        dest: /etc/nginx/conf.d/{{ domain }}.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart nginx
+
+##########################################################################################
+# Install and configure apache
+##########################################################################################
+
+    - name: Install httpd + modules.
+      yum:
+        name: ['httpd', 'httpd-itk', 'httpd-devel', 'mod_ssl']
+        state: present
+    
+    - name: Set httpd port 8080.
+      lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        regexp: '^Listen '
+        insertafter: '^#Listen '
+        line: 'Listen 8080'
+        state: present
+      notify:
+        - restart httpd
+
+    - name: Enable httpd modules.
+      lineinfile:
+        path: /etc/httpd/conf.modules.d/00-base.conf
+        regexp: '^#?LoadModule {{ item }}_module'
+        line: LoadModule {{ item }}_module modules/mod_{{ item }}.so
+        state: present
+      with_items:
+        - mpm_itk
+        - env
+        - rewrite
+        - status
+      notify:
+        - restart httpd
+      
+    - name: Starting and enabling httpd service.
+      service: name=httpd state=started enabled=yes
+
+    - name: Configure vhost from template.
+      template:
+        src: ../templates/httpd/vhost.conf
+        dest: /etc/httpd/conf.d/{{ domain }}.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart httpd
+      tags: create_vhost
+
+##########################################################################################
+# MariaDB 10.2
+##########################################################################################
+
+    - name: Adding mariadb 10.2 repository.
+      yum_repository:
+        name: mariadb
+        description: MariaDB YUM repo
+        file: /etc/yum.repos.d/mariadb
+        baseurl: http://yum.mariadb.org/10.2/centos7-amd64
+        gpgkey: https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+        enabled: yes
+      tags: mariadb
+
+    - name: Install mariadb-server and mariadb-client 10.2.
+      yum:
+        name: ['MariaDB-server', 'MariaDB-client']
+        state: present
+        update_cache: yes
+      tags: mariadb
+
+    - name: Starting and enabling MariaDB service.
+      service: name=mariadb state=started enabled=yes
+      tags: mariadb
+
+    - name: Create mysql logs folder exists.
+      file:
+        state: directory
+        owner: mysql
+        group: mysql
+        path: /var/log/mysql
+      tags: mariadb
+
+    - name: Configure my.cnf
+      template:
+        src: ../templates/mysql/my.cnf
+        dest: /etc/my.cnf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart mariadb
+      tags: mariadb
+
+    - name: Create database user with password and all database privileges and 'WITH GRANT OPTION'.
+      mysql_user:
+        login_user: root
+        login_password: "{{ mysql_root_pass }}"
+        name: "{{ db_user }}"
+        password: "{{ db_pass }}"
+        priv: '*.*:ALL,GRANT'
+        state: present
+
+##########################################################################################
+# PHP 7.1 + modules
+##########################################################################################
+
+    - name: Install repo-remi.
+      yum: name=http://rpms.remirepo.net/enterprise/remi-release-7.rpm state=present
+
+    - name: install php7.1 and modules.
+      yum:
+        name:
+          - php71-php
+          - php71-php-fpm
+          - php71-php-bcmath
+          - php71-php-cli
+          - php71-php-common
+          - php71-php-devel
+          - php71-php-intl
+          - php71-php-mbstring
+          - php71-php-mcrypt
+          - php71-php-mysqlnd
+          - php71-php-odbc
+          - php71-php-pdo
+          - php71-php-pecl-apcu
+          - php71-php-pecl-apcu-bc
+          - php71-php-pecl-memcache
+          - php71-php-process
+          - php71-php-xml
+          - php71-php-xmlrpc
+          - php71-php-gd
+        state: present
+        enablerepo: remi-php71
+
+    - name: Update php.ini.
+      ini_file:
+        path: /etc/opt/remi/php71/php.ini
+        section: "{{ item.section }}"
+        option: "{{ item.option }}"
+        value: "{{ item.value }}"
+      with_items:
+        - { section: "Date", option: "date.timezone", value: "UTC"}
+        - { section: "PHP", option: "short_open_tag", value: "On"}
+        - { section: "PHP", option: "error_reporting", value: "E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED & ~E_WARNING"}
+        - { section: "PHP", option: "memory_limit", value: "128M"}
+        - { section: "PHP", option: "open_basedir", value: "Off"}
+        - { section: "SQL", option: "sql.safe_mode", value: "Off"}
+      notify:
+        - restart httpd
+      tags: update_php
+
+    - name: Configure php-fpm settings.
+      template:
+        src: templates/php/php-fpm.conf
+        dest: /etc/opt/remi/php71/php-fpm.d/{{ acc_user }}.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - restart php71-php-fpm
+
+    - name: Create index.php with phpinfo().
+      copy:
+        src: templates/php/index.php
+        dest: /home/{{ acc_user }}/public_html/index.php
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Fix permissions.
+      file:
+        path: /home/{{ acc_user }}/public_html
+        state: directory
+        recurse: yes
+        mode: '0755'
+        owner: "{{ acc_user }}"
+        group: "{{ acc_user }}"
+
+##########################################################################################
+# Handlers
+##########################################################################################
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: restart php71-php-fpm
+      service:
+        name: php71-php-fpm
+        state: restarted
+
+    - name: restart httpd
+      service:
+        name: httpd
+        state: restarted
+
+    - name: restart elasticsearch
+      service:
+        name: elasticsearch
+        state: restarted
+
+    - name: restart mariadb
+      service:
+        name: mariadb
+        state: restarted
+
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
