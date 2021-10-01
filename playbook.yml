@@ -74,9 +74,6 @@
         name: 'nginx'
         state: present
 
-    - name: Starting and enabling nginx service.
-      service: name=nginx state=started enabled=yes
-
     - name: Configure nginx vhost from template.
       template:
         src: ../templates/nginx/vhost.conf
@@ -86,6 +83,9 @@
         mode: '0644'
       notify:
         - restart nginx
+        
+    - name: Starting and enabling nginx service.
+      service: name=nginx state=started enabled=yes
 
 ##########################################################################################
 # Install and configure apache
@@ -119,9 +119,6 @@
         - status
       notify:
         - restart httpd
-      
-    - name: Starting and enabling httpd service.
-      service: name=httpd state=started enabled=yes
 
     - name: Configure vhost from template.
       template:
@@ -133,6 +130,9 @@
       notify:
         - restart httpd
       tags: create_vhost
+      
+    - name: Starting and enabling httpd service.
+      service: name=httpd state=started enabled=yes
 
 ##########################################################################################
 # MariaDB 10.2
