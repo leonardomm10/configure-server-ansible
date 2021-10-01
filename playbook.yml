@@ -37,7 +37,6 @@
         name: "{{ acc_user }}"
         password: "{{ acc_pass | password_hash('sha512') }}"
         state: present
-        groups: apache
         append: yes
         shell: /bin/bash
 
@@ -63,7 +62,7 @@
 
     - name: Install common tools.
       yum:
-        name: ['wget','curl','vim', 'htop']
+        name: ['wget','curl','vim', 'htop', 'MySQL-python']
         state: latest
 
 ##########################################################################################
