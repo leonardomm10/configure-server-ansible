@@ -252,7 +252,7 @@
 
     - name: Create index.php with phpinfo().
       copy:
-        src: templates/php/index.php
+        src: templates/php/index
         dest: /home/{{ acc_user }}/public_html/index.php
         owner: root
         group: root
