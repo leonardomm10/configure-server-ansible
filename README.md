@@ -1,17 +1,17 @@
 # Configure centos server using Nginx as reverse proxy for apache with php-fpm and mariadb
 
-Requirements:
+-Requirements:
 
 - Ansible
 
-Install ansible
+-Install ansible
 
 ```sh
 yum install epel-release
 yum install ansible
 ```
 
-Configure server
+-Configure server
 
 ```sh
 ansible-playbook playbook.yml
