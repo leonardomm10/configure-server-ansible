@@ -155,10 +155,6 @@
         update_cache: yes
       tags: mariadb
 
-    - name: Starting and enabling MariaDB service.
-      service: name=mariadb state=started enabled=yes
-      tags: mariadb
-
     - name: Create mysql logs folder exists.
       file:
         state: directory
@@ -186,6 +182,10 @@
         password: "{{ db_pass }}"
         priv: '*.*:ALL,GRANT'
         state: present
+
+    - name: Starting and enabling MariaDB service.
+      service: name=mariadb state=started enabled=yes
+      tags: mariadb
 
 ##########################################################################################
 # PHP 7.1 + modules
@@ -245,6 +245,10 @@
         mode: '0644'
       notify:
         - restart php71-php-fpm
+
+    - name: Starting and enabling php-fpm service.
+      service: name=php71-php-fpm state=started enabled=yes
+      tags: php71-php-fpm
 
     - name: Create index.php with phpinfo().
       copy:
